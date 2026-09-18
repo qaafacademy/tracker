@@ -107,21 +107,61 @@
   ApiError.prototype = Object.create(Error.prototype);
   Q.ApiError = ApiError;
 
+  /* The app talks to Apps Script with POST. Apps Script answers through a redirect, and
+   * some browsers/networks turn the redirected POST into a GET, which used to fail. So the
+   * same call can also be sent as GET parameters, and whichever way works is remembered. */
+  var GET_LIMIT = 7000;
+  function parseReply(r, how) {
+    if (!r.ok) { var e = new ApiError('The server did not respond (' + r.status + ').', 'HTTP'); e.http = r.status; e.how = how; throw e; }
+    return r.json().catch(function () {
+      var e = new ApiError('The server sent an unexpected reply. Check the API address in config.js.', 'HTTP'); e.how = how; throw e;
+    });
+  }
+  function sendPost(body) {
+    return fetch(CFG.apiUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body), redirect: 'follow' })
+      .catch(function () { var e = new ApiError('Could not reach the server. Check your internet connection and try again.', 'NETWORK'); e.how = 'post'; throw e; })
+      .then(function (r) { return parseReply(r, 'post'); });
+  }
+  function getUrl(body) {
+    return CFG.apiUrl + (CFG.apiUrl.indexOf('?') < 0 ? '?' : '&') + 'action=' + encodeURIComponent(body.action) +
+      '&session=' + encodeURIComponent(body.session || '') + '&payload=' + encodeURIComponent(JSON.stringify(body.payload || {})) +
+      '&t=' + Date.now();
+  }
+  function sendGet(body) {
+    var url = getUrl(body);
+    if (url.length > GET_LIMIT) {
+      var big = new ApiError('This is too large to send the way your browser is connecting. Try a smaller file, or open the tracker in Chrome.', 'TOO_BIG');
+      return Promise.reject(big);
+    }
+    return fetch(url, { method: 'GET', redirect: 'follow' })
+      .catch(function () { var e = new ApiError('Could not reach the server. Check your internet connection and try again.', 'NETWORK'); e.how = 'get'; throw e; })
+      .then(function (r) { return parseReply(r, 'get'); });
+  }
+
   Q.api = function (action, payload) {
-    var session = Q.store.get('session');
-    var body = { action: action, payload: payload || {}, session: session };
+    var body = { action: action, payload: payload || {}, session: Q.store.get('session') };
     var p;
     if (DEMO) {
       p = window.DemoBackend.call(body);
+    } else if (!CFG.apiUrl) {
+      p = Promise.reject(new ApiError('The API address is missing from config.js.', 'SETUP'));
     } else {
-      p = fetch(CFG.apiUrl, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body), redirect: 'follow' })
-        .catch(function () { throw new ApiError('Could not reach the server. Check your internet connection and try again.', 'NETWORK'); })
-        .then(function (r) {
-          if (!r.ok) throw new ApiError('The server did not respond (' + r.status + '). Please try again in a moment.', 'NETWORK');
-          return r.json().catch(function () { throw new ApiError('The server sent an unexpected reply. Check the API address in config.js.', 'NETWORK'); });
-        });
+      var way = Q.store.get('transport');
+      var first = way === 'get' ? sendGet : sendPost;
+      var second = way === 'get' ? sendPost : sendGet;
+      p = first(body).then(function (res) {
+        if (!way) Q.store.set('transport', way === 'get' ? 'get' : 'post');
+        return res;
+      }).catch(function (e) {
+        if (e.code === 'TOO_BIG' || e.code === 'SETUP') throw e;
+        return second(body).then(function (res) {
+          Q.store.set('transport', way === 'get' ? 'post' : 'get');
+          return res;
+        }).catch(function (e2) { throw (e2.code === 'NETWORK' ? e2 : e); });
+      });
     }
     return p.then(function (res) {
+      if (!res || typeof res.ok !== 'boolean') throw new ApiError('The server sent an unexpected reply. Check the API address in config.js.', 'HTTP');
       if (!res.ok) {
         if (res.code === 'AUTH' && action !== 'login') Q.signedOut(res.error);
         throw new ApiError(res.error, res.code);
@@ -507,6 +547,7 @@
   Q.signOut = function (everywhere) {
     Q.api(everywhere ? 'logoutAll' : 'logout').catch(function () {}).then(function () {
       Q.store.set('session', null);
+      Q.store.set('transport', null);
       try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* ignore */ }
       if (!DEMO && window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
       Q.closeModal();

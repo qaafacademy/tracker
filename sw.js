@@ -1,8 +1,8 @@
 /* Qaaf Tracker service worker: lets the app open quickly and install on phones.
  * Only the app's own files are cached. Data always comes live from the server. */
-var CACHE = 'qaaf-tracker-1.1.0';
-var FILES = ['./', 'index.html', 'app.css?v=1.1.0', 'config.js?v=1.1.0', 'app-core.js?v=1.1.0', 'app-views.js?v=1.1.0',
-  'app-pages.js?v=1.1.0', 'app-actions.js?v=1.1.0', 'manifest.webmanifest', 'assets/logo-color.png', 'assets/logo-white.png',
+var CACHE = 'qaaf-tracker-1.1.1';
+var FILES = ['./', 'index.html', 'app.css?v=1.1.1', 'config.js?v=1.1.1', 'app-core.js?v=1.1.1', 'app-views.js?v=1.1.1',
+  'app-pages.js?v=1.1.1', 'app-actions.js?v=1.1.1', 'manifest.webmanifest', 'assets/logo-color.png', 'assets/logo-white.png',
   'assets/qmark-color.png', 'assets/icon-192.png', 'assets/favicon-32.png'];
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(FILES); }).then(function () { return self.skipWaiting(); }));
