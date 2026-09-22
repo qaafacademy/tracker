@@ -12,14 +12,16 @@
     return '<div class="mcard' + (m.date === T ? ' today' : '') + '" data-meeting="' + m.id + '">' +
       '<div class="mdate"><b>' + d.getDate() + '</b><span>' + d.toLocaleDateString('en-GB', { month: 'short' }) + '</span></div>' +
       '<div><div class="tt" style="font-weight:500">' + esc(m.title) + (cancelled ? ' <span class="pill due-over">Cancelled</span>' : m.status === 'HELD' ? ' <span class="pill">Notes taken</span>' : '') + '</div>' +
-      '<div class="mt muted small">' + (m.date === T ? 'Today' : d.toLocaleDateString('en-GB', { weekday: 'long' })) + ' · ' + Q.time12(m.time) + (m.location ? ' · ' + esc(m.location) : '') + '</div></div>' +
+      '<div class="mt muted small">' + (m.date === T ? 'Today' : d.toLocaleDateString('en-GB', { weekday: 'long' })) + ' · ' + Q.time12(m.time) + (m.location ? ' · ' + esc(m.location) : '') + '</div>' +
+      (m.date >= T && m.status !== 'CANCELLED' ? '<div class="agenda-peek">' + (m.agenda ? 'Agenda: ' + esc(m.agenda.replace(/\s+/g, ' ')) : '<span class="faint">No agenda yet – open to add one</span>') + '</div>' : '') + '</div>' +
       '<div class="avs">' + m.participants.slice(0, 6).map(function (p) { return Q.av(p, 's'); }).join('') + '</div></div>';
   }
 
   Q.views.meetings = function () {
     var T = Q.today(), ms = S.data.meetings.slice();
     var today = ms.filter(function (m) { return m.date === T; }).sort(byTime);
-    var upcoming = ms.filter(function (m) { return m.date > T; }).sort(byWhen).slice(0, 12);
+    var upTo = Q.addDays(T, (S.data.settings.meetingDaysAhead || 14) - 1);
+    var upcoming = ms.filter(function (m) { return m.date > T && m.date <= upTo && m.status !== 'CANCELLED'; }).sort(byWhen);
     var past = ms.filter(function (m) { return m.date < T; }).sort(byWhen).reverse().slice(0, 20);
     var pending = S.data.meetingItems.filter(function (i) { return i.type === 'ACTION' && !i.done; });
     var series = S.data.series.filter(function (s) { return s.active; });
@@ -28,7 +30,7 @@
       '<button class="btn primary" data-act="newMeeting">' + icon('plus', ' width="16" height="16"') + 'New meeting</button></div></div>' +
       '<div class="grid g-3-2"><div class="grid">' +
       '<div class="panel"><div class="panel-h"><h2>Today</h2><span class="muted small">' + esc(Q.fmtLong(T)) + '</span></div>' + (today.length ? today.map(meetingCard).join('') : emptyBox('No meetings today')) + '</div>' +
-      '<div class="panel"><div class="panel-h"><h2>Coming up</h2></div>' + (upcoming.length ? upcoming.map(meetingCard).join('') : emptyBox('Nothing scheduled yet. Daily standups appear each morning.')) + '</div>' +
+      '<div class="panel"><div class="panel-h"><h2>Coming up</h2><span class="muted small">Next ' + (S.data.settings.meetingDaysAhead || 14) + ' days · add agendas in advance</span></div>' + (upcoming.length ? upcoming.map(meetingCard).join('') : emptyBox('Nothing scheduled yet. Daily standups appear each morning.')) + '</div>' +
       '<div class="panel"><div class="panel-h"><h2>Earlier</h2></div>' + (past.length ? past.map(meetingCard).join('') : emptyBox('Past meetings will appear here')) + '</div></div>' +
       '<div class="grid" style="align-content:start">' +
       '<div class="panel"><div class="panel-h"><h2>Open action items</h2><span class="muted small">' + pending.length + '</span></div>' +
@@ -88,7 +90,7 @@
       '<div class="panel"><div class="panel-h"><h2>Participants</h2></div>' + m.participants.map(function (p) {
         return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0">' + Q.av(p, 's') + esc(Q.pname(p)) + (p === m.organizer ? ' <span class="muted small">organiser</span>' : '') + '</div>';
       }).join('') + '</div>' +
-      '<div class="panel"><div class="panel-h"><h2>Agenda</h2></div>' + (M.canNote ? '<textarea id="m-agenda" maxlength="5000" aria-label="Agenda" placeholder="Topics to discuss">' + esc(m.agenda) + '</textarea>' : '<p>' + (esc(m.agenda) || '<span class="muted">No agenda</span>') + '</p>') + '</div>' +
+      '<div class="panel"><div class="panel-h"><h2>Agenda</h2>' + (m.date >= T && m.status !== 'CANCELLED' && M.canNote ? '<span class="muted small">Participants are notified when you save</span>' : '') + '</div>' + (M.canNote ? '<textarea id="m-agenda" maxlength="5000" aria-label="Agenda" placeholder="Topics to discuss">' + esc(m.agenda) + '</textarea>' : '<p>' + (esc(m.agenda) || '<span class="muted">No agenda</span>') + '</p>') + '</div>' +
       '<div class="panel"><div class="panel-h"><h2>Notes</h2></div>' + (M.canNote ? '<textarea id="m-notes" style="min-height:140px" maxlength="5000" aria-label="Notes" placeholder="What was discussed">' + esc(m.notes) + '</textarea>' +
         '<div style="margin-top:10px;display:flex;justify-content:flex-end"><button class="btn primary" data-act="meetingSaveNotes">Save agenda & notes</button></div>' : '<p style="white-space:pre-wrap">' + (esc(m.notes) || '<span class="muted">No notes yet</span>') + '</p>') + '</div>' +
       '</div></div>';

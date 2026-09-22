@@ -220,6 +220,8 @@ h3{font-size:14px;margin:0;font-weight:600}
 .today-stats div b{display:block;font-size:26px;font-weight:600;line-height:1.1}
 .today-stats div span{font-size:12px;color:#E4E0F7}
 .today-stats .over b{color:#FFB3BF}
+.today-stats.on-light{color:var(--text)}
+.today-stats.on-light div span{color:var(--muted)}
 .sec{margin-bottom:22px}
 .sec-h{display:flex;align-items:center;gap:8px;margin:0 0 8px}
 .sec-h .count{font-size:12px;color:var(--muted)}
@@ -350,6 +352,17 @@ tr.drow2 td{background:var(--surface);font-weight:600;font-size:15px;padding-top
 .tabs button[aria-selected="true"]{color:var(--purple);border-color:var(--purple);font-weight:600}
 .status-list{display:grid;gap:8px}
 .status-list div{display:flex;gap:10px;align-items:flex-start;font-size:13px}
+.selbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--purple-soft);border:1px solid var(--purple-line);border-radius:12px;padding:8px 12px;margin-bottom:12px;position:sticky;top:64px;z-index:5}
+tr.trow.selected td{background:var(--purple-soft)}
+.bulk-help{background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:12.5px;margin-bottom:12px}
+.bulk-help code{font-family:inherit;background:var(--surface);border:1px solid var(--line);border-radius:5px;padding:0 5px}
+.bulk-table{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:10px}
+.bulk-table table{min-width:760px;font-size:12.5px}
+.bulk-table td,.bulk-table th{padding:6px 8px}
+.bulk-table tr.bad td{background:var(--coral-soft)}
+.bulk-table .err{color:var(--coral-text);font-weight:500}
+.agenda-peek{font-size:12px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.mcard>div{min-width:0}
 .bottom-nav{display:none}
 .fab{display:none}
 

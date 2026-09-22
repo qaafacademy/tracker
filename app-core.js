@@ -192,7 +192,7 @@
     filters: { q: '', dept: '', owner: '', status: '', pri: '', due: '' },
     collapsed: {}, pipeDept: '', wsDept: 'all',
     reports: { period: '30', from: '', to: '', dept: '', person: '' },
-    adminTab: 'people', meeting: null, drawer: null
+    adminTab: 'people', meeting: null, drawer: null, selected: {}
   };
 
   Q.index = function () {

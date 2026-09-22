@@ -122,7 +122,9 @@
       '<dt>Due date</dt><dd>' + (can ? '<input type="date" data-field="due" value="' + esc(t.due) + '" aria-label="Due date">' : ro(Q.fmt(t.due))) + (t.due ? ' ' + Q.duePill(t) : '') + '</dd>' +
       '<dt>Workstream</dt><dd>' + (can ? '<select data-field="group" aria-label="Workstream">' + Q.options(S.data.groups.filter(function (x) { return !x.archived; }).sort(function (a, b) { return Q.wbsCmp(a.wbs, b.wbs); }).map(function (x) { return [x.id, Q.deptOf(x.dept).name + ' › ' + x.title]; }), t.group) + '</select>' : ro(esc(g.title))) + '</dd>' +
       (stages.length ? '<dt>Stage</dt><dd>' + (can ? '<select data-field="stage" aria-label="Stage">' + Q.options(stages.map(function (s) { return [s.code, s.label]; }), t.stage, '—') + '</select>' : ro(esc((stages.find(function (s) { return s.code === t.stage; }) || {}).label || '—'))) + '</dd>' : '') +
-      '<dt>Progress</dt><dd>' + Q.minibar(t) + (cl.length ? '<div class="muted small">Follows the checklist</div>' : '') + '</dd>' +
+      '<dt>Progress</dt><dd>' + Q.minibar(t) + (cl.length ? '<div class="muted small">Follows the checklist</div>' : '') +
+        (t.qty ? '<div class="small"><b>' + Q.filesDone(t) + '</b> of ' + t.qty + ' files done</div>' : '') + '</dd>' +
+      '<dt>Files</dt><dd>' + (can ? '<input type="number" min="1" step="1" data-field="qty" value="' + (t.qty || '') + '" style="width:90px" aria-label="Number of files"> <span class="muted small">for counting files (optional)</span>' : (t.qty ? t.qty + ' files' : '—')) + '</dd>' +
       '<dt>Time</dt><dd>' + (t.act ? t.act + ' h spent' : 'No hours logged') + (can ? ' · est. <input type="number" min="0" step="0.5" data-field="est" value="' + (t.est === null || t.est === undefined ? '' : t.est) + '" style="width:80px" aria-label="Estimated hours"> h' : t.est ? ' · est. ' + t.est + ' h' : '') + '</dd>' +
       '<dt>Created</dt><dd class="small">' + esc(creator) + (t.createdAt && t.createdBy ? ' · ' + Q.ago(t.createdAt) : '') + '</dd>' +
       (t.baselineDue ? '<dt>Old plan</dt><dd class="small muted">Excel date ' + Q.fmt(t.baselineDue) + '</dd>' : '') +
@@ -227,6 +229,7 @@
     if (f === 'status') { Q.changeStatus(t, v); return; }
     if (f === 'due') { changeDue(t, v); return; }
     if (f === 'est') { saveTask(t, { est: v === '' ? '' : Number(v) }); return; }
+    if (f === 'qty') { saveTask(t, { qty: v === '' ? '' : Number(v) }); return; }
     var patch = {}; patch[f] = v;
     saveTask(t, patch);
   }
@@ -265,6 +268,7 @@
         return '<button type="button" data-s="' + s + '" aria-pressed="' + (s === st) + '">' + Q.STATUS[s].label + '</button>';
       }).join('') + '</div></div>' +
       (cl.length ? '<div class="field"><span class="lbl">Progress</span><div class="hint">Progress follows the checklist (' + cl.filter(function (c) { return c.done; }).length + ' of ' + cl.length + ' steps done). Tick steps in the task.</div></div>'
+        : t.qty ? '<div class="field"><label for="u-files">Files done so far <span class="muted">(of ' + t.qty + ')</span></label><input type="number" id="u-files" min="0" max="' + t.qty + '" step="1" value="' + Q.filesDone(t) + '" style="max-width:140px"><div class="hint" id="u-files-pct">' + (t.pct || 0) + '% done</div></div>'
         : '<div class="field"><label for="u-pct">Progress <span class="pctv" id="u-pctv">' + (t.pct || 0) + '%</span></label><input type="range" id="u-pct" min="0" max="100" step="5" value="' + (t.pct || 0) + '"></div>') +
       '<div class="field" id="u-blk-wrap"' + (st === 'BLOCKED' ? '' : ' hidden') + '><label for="u-blk">What is blocking it?</label><input id="u-blk" type="text" maxlength="500" value="' + esc(t.blocker) + '" placeholder="e.g. waiting for printer quote"></div>' +
       '<div class="two"><div class="field"><label for="u-hours">Hours spent today</label><input id="u-hours" type="number" min="0" max="24" step="0.5" placeholder="0"></div><div class="field"></div></div>' +
@@ -279,11 +283,23 @@
       $('#u-blk-wrap').hidden = status !== 'BLOCKED';
       var r = $('#u-pct'); if (r && status === 'COMPLETED') { r.value = 100; $('#u-pctv').textContent = '100%'; }
     });
-    var range = m.querySelector('#u-pct');
+    var range = m.querySelector('#u-pct'), files = m.querySelector('#u-files');
     if (range) range.addEventListener('input', function () { $('#u-pctv').textContent = range.value + '%'; });
+    if (files) files.addEventListener('input', function () {
+      var raw = Number(files.value);
+      if (isNaN(raw) || raw < 0 || raw > t.qty) { $('#u-files-pct').textContent = 'Enter a number from 0 to ' + t.qty; return; }
+      var n = Math.round(raw);
+      $('#u-files-pct').textContent = Math.round(n / t.qty * 100) + '% done' + (n === t.qty ? ' – all files done' : '');
+      if (n === t.qty && status !== 'COMPLETED') { var cb = m.querySelector('#u-status [data-s="COMPLETED"]'); if (cb) cb.click(); }
+    });
     m.querySelector('#u-save').addEventListener('click', function (e) {
       var patch = { status: status };
       if (range && status !== 'COMPLETED') patch.pct = Number(range.value);
+      if (files) {
+        var n = Number(files.value);
+        if (isNaN(n) || n < 0 || n > t.qty) { Q.toast('Files done must be between 0 and ' + t.qty + '.', true); files.focus(); return; }
+        if (status !== 'COMPLETED') patch.pct = Math.round(n / t.qty * 100);
+      }
       if (status === 'BLOCKED') {
         patch.blocker = val('u-blk');
         if (!patch.blocker) { Q.toast('Please say what is blocking the task.', true); $('#u-blk').focus(); return; }
@@ -576,7 +592,7 @@
   }
 
   var NOTIF_ICON = { TASK_ASSIGNED: 'mine', MENTION: 'team', COMMENT: 'team', MEETING: 'meetings', MEETING_CHANGED: 'meetings', ANNOUNCEMENT: 'bell',
-    DUE_SOON: 'deadlines', OVERDUE: 'deadlines', BLOCKED: 'deadlines', TASK_DONE: 'mine', DUE_CHANGED: 'deadlines', FILE: 'tasks' };
+    DUE_SOON: 'deadlines', OVERDUE: 'deadlines', BLOCKED: 'deadlines', TASK_DONE: 'mine', DUE_CHANGED: 'deadlines', FILE: 'tasks', MEETING_AGENDA: 'meetings' };
   function toggleNotif() {
     if ($('#notif-pop')) { closeNotif(); return; }
     var list = S.data.notifications;
@@ -606,8 +622,226 @@
     if (n.linkType === 'task' && Q.ix.tasks[n.linkId]) Q.openTask(n.linkId);
     else if (n.linkType === 'meeting') { S.meeting = null; Q.go('meeting', n.linkId); }
     else if (n.linkType === 'series') Q.go('meetings');
+    else if (n.linkType === 'view') Q.go(n.linkId || 'mine');
     else if (n.type === 'ANNOUNCEMENT') Q.openModal(Q.modalHead(n.title, 'Announcement · ' + Q.ago(n.at)) + '<div class="md-b"><p style="white-space:pre-wrap">' + renderText(n.body) + '</p></div><div class="md-f"><button class="btn primary" data-act="closeModal">OK</button></div>');
     else if (n.linkType === 'task') Q.toast('This task is no longer available.', true);
+  }
+
+  /* ================= BULK ADD / BULK UPDATE ================= */
+  var MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12 };
+  function monthNum(w) { w = String(w).toLowerCase(); return MONTHS[w.slice(0, 4)] || MONTHS[w.slice(0, 3)] || null; }
+  function pad2(n) { return String(n).padStart(2, '0'); }
+  function validYmd(y, m, d) {
+    if (y < 100) y += 2000;
+    var dt = new Date(Date.UTC(y, m - 1, d));
+    return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d ? y + '-' + pad2(m) + '-' + pad2(d) : null;
+  }
+  /** Accepts 2026-12-17, 17/12/2026, 17-12-2026, 17.12.2026, 17 Dec 2026, Dec 17 2026, 17-Dec-2026. */
+  Q.parseDate = function (v) {
+    v = String(v || '').trim();
+    if (!v) return '';
+    if (v === '-') return '-';
+    var m;
+    if ((m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(v))) return validYmd(+m[1], +m[2], +m[3]);
+    if ((m = /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/.exec(v))) return validYmd(+m[3], +m[2], +m[1]);
+    if ((m = /^(\d{1,2})[\s\-]+([A-Za-z]{3,9})[\s\-,]+(\d{2,4})$/.exec(v))) { var mo = monthNum(m[2]); return mo ? validYmd(+m[3], mo, +m[1]) : null; }
+    if ((m = /^([A-Za-z]{3,9})\s+(\d{1,2}),?\s+(\d{2,4})$/.exec(v))) { var mo2 = monthNum(m[1]); return mo2 ? validYmd(+m[3], mo2, +m[2]) : null; }
+    return null;
+  };
+  var PRI_WORDS = { critical: 'P0', urgent: 'P0', high: 'P1', medium: 'P2', normal: 'P2', low: 'P3', later: 'P4' };
+  function checkPri(v) { v = String(v || '').trim(); if (!v) return 'P2'; var up = v.toUpperCase(); if (Q.PRIORITY[up]) return up; return PRI_WORDS[v.toLowerCase()] || null; }
+  function checkOwner(v) {
+    v = String(v || '').trim(); if (!v || v === '-') return { id: '', label: '' };
+    var low = v.toLowerCase();
+    var team = S.data.teams.find(function (t) { return t.name.toLowerCase() === low || t.id.toLowerCase() === low; });
+    if (team) return { id: team.id, label: team.name };
+    var users = Q.activeUsers().filter(function (u) { var n = u.name.toLowerCase(); return n === low || n.split(/\s+/)[0] === low || u.id.toLowerCase() === low || String(u.email || '').toLowerCase() === low; });
+    if (users.length === 1) return { id: users[0].id, label: users[0].name };
+    return null;
+  }
+  function checkDept(v) {
+    v = String(v || '').trim().toLowerCase(); if (!v) return null;
+    return S.data.departments.find(function (d) { return d.active && (d.name.toLowerCase() === v || d.id.toLowerCase() === v); }) || null;
+  }
+  function splitLine(line) {
+    var cells = line.indexOf('\t') >= 0 ? line.split('\t') : line.split('|');
+    return cells.map(function (c) { return c.trim(); });
+  }
+  function parseBulk(text, mode, defaults) {
+    var lines = String(text || '').split(/\r?\n/).map(function (l) { return l.replace(/\s+$/, ''); }).filter(function (l) { return l.trim(); });
+    if (lines.length && /^(task|title|task name)\b/i.test(splitLine(lines[0])[0])) lines.shift();
+    return lines.map(function (line, i) {
+      var c = splitLine(line), r, errs = [];
+      if (mode === 'update') {
+        r = { title: c[0] || '', owner: c[1] || '', due: c[2] || '', pri: c[3] || '', qty: c[4] || '' };
+        if (!r.title) errs.push('Task name missing');
+        var match = Q.tasks().filter(function (t) { return t.title.toLowerCase() === r.title.toLowerCase(); });
+        if (r.title && !match.length) errs.push('No task with this name');
+        if (match.length > 1) errs.push(match.length + ' tasks have this name');
+        if (match.length === 1 && !Q.canEdit(match[0])) errs.push('You cannot change this task');
+        r.task = match.length === 1 ? match[0] : null;
+      } else {
+        r = { title: c[0] || '', dept: c[1] || defaults.dept || '', workstream: c[2] || defaults.workstream || '', owner: c[3] || '', due: c[4] || '', pri: c[5] || '', qty: c[6] || '' };
+        if (!r.title) errs.push('Task name missing');
+        var d = checkDept(r.dept);
+        if (!d) errs.push(r.dept ? 'Department "' + r.dept + '" not found' : 'Department missing');
+        else r.dept = d.name;
+        if (!r.workstream) r.workstream = 'General';
+      }
+      var o = checkOwner(r.owner);
+      if (o === null) errs.push('Owner "' + r.owner + '" not found'); else r.ownerLabel = o.label;
+      var due = Q.parseDate(r.due);
+      if (due === null) { errs.push('Date "' + r.due + '" not understood'); r.dueRaw = r.due; r.due = ''; } else r.due = due;
+      if (r.pri) { var pr = checkPri(r.pri); if (!pr) errs.push('Priority "' + r.pri + '" not known'); else r.pri = pr; }
+      if (r.qty !== '' && !(Number(r.qty) >= 1 && Number(r.qty) === Math.round(Number(r.qty)))) errs.push('Files must be a whole number');
+      r.line = i + 1; r.errors = errs;
+      return r;
+    });
+  }
+  /** Send rows in parts small enough for either connection route. */
+  function sendBulk(mode, rows, reason, onProgress) {
+    var parts = [], cur = [];
+    rows.forEach(function (r) {
+      var trial = cur.concat([r]);
+      if (cur.length && (trial.length > 50 || encodeURIComponent(JSON.stringify({ mode: mode, rows: trial, dueReason: reason })).length > 5200)) { parts.push(cur); cur = [r]; }
+      else cur = trial;
+    });
+    if (cur.length) parts.push(cur);
+    var out = { results: [], tasks: [], groups: null }, sent = 0;
+    return parts.reduce(function (p, part) {
+      return p.then(function () {
+        return Q.api('task.bulk', { mode: mode, rows: part, dueReason: reason }).then(function (r) {
+          r.results.forEach(function (x) { out.results.push({ row: sent + x.row, ok: x.ok, error: x.error, changed: x.changed }); });
+          out.tasks = out.tasks.concat(r.tasks); if (r.groups) out.groups = r.groups;
+          sent += part.length; onProgress(sent, rows.length);
+        });
+      });
+    }, Promise.resolve()).then(function () { return out; });
+  }
+
+  function openBulkAdd(mode) {
+    mode = mode || 'create';
+    var active = S.data.departments.filter(function (d) { return d.active; });
+    var m = Q.openModal(Q.modalHead('Add or update many tasks') +
+      '<div class="md-b"><div class="tabs" role="tablist" style="margin-bottom:12px">' +
+      '<button role="tab" data-mode="create" aria-selected="' + (mode === 'create') + '">Add new tasks</button>' +
+      '<button role="tab" data-mode="update" aria-selected="' + (mode === 'update') + '">Update existing tasks</button></div>' +
+      '<div id="bk-help"></div>' +
+      '<div class="two" id="bk-defaults"' + (mode === 'create' ? '' : ' hidden') + '><div class="field"><label for="bk-dept">Department when a row leaves it empty</label><select id="bk-dept">' +
+      Q.options(active.map(function (d) { return [d.name, d.name]; }), '', '—') + '</select></div>' +
+      '<div class="field"><label for="bk-ws">Workstream when a row leaves it empty</label><input id="bk-ws" type="text" maxlength="120" placeholder="General"></div></div>' +
+      '<div class="field"><label for="bk-text">Paste the list here (from Excel, Google Sheets or typed with | between columns)</label>' +
+      '<textarea id="bk-text" style="min-height:160px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px" spellcheck="false"></textarea></div>' +
+      '<div class="field" id="bk-reason-wrap" hidden><label for="bk-reason">Reason for changing due dates that were already set</label><input id="bk-reason" type="text" maxlength="500"></div>' +
+      '<div id="bk-preview"></div></div>' +
+      '<div class="md-f"><span class="muted small" id="bk-status" style="margin-right:auto"></span><button class="btn" data-act="closeModal">Close</button>' +
+      '<button class="btn" id="bk-check">Check list</button><button class="btn primary" id="bk-go" disabled>Create</button></div>', true);
+    var rows = [];
+    function help() {
+      $('#bk-help').innerHTML = mode === 'create'
+        ? '<div class="bulk-help">One task per line. Columns in this order (only the task name is required):<br>' +
+          '<code>Task</code> | <code>Department</code> | <code>Workstream</code> | <code>Owner</code> | <code>Due date</code> | <code>Priority</code> | <code>Files</code><br>' +
+          'Example: <code>Design landing page | Marketing | Admission – Website | Fahad | 30/09/2026 | High</code><br>' +
+          'Owner can be a first name or a team (e.g. Product Team). Dates like 30/09/2026 or 30 Sep 2026. Priority P0–P4, High, Medium, Low. New workstreams are created automatically.</div>'
+        : '<div class="bulk-help">One task per line, matched by its exact name. Columns: <code>Task name</code> | <code>Owner</code> | <code>Due date</code> | <code>Priority</code> | <code>Files</code><br>' +
+          'Leave a column empty to keep it as it is. Use <code>-</code> as the date to remove a due date.<br>' +
+          'Example: <code>P1 Tarbiyah – Textbook – Batch 1 (files 1–24) | Wafi | 26/09/2026</code><br>' +
+          'Tip: to change many tasks without typing names, tick them in All tasks instead.</div>';
+      $('#bk-defaults').hidden = mode !== 'create';
+      $('#bk-go').textContent = mode === 'create' ? 'Create' : 'Update';
+    }
+    help();
+    m.querySelector('.tabs').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-mode]'); if (!b) return;
+      mode = b.dataset.mode;
+      Q.$$('.tabs [data-mode]', m).forEach(function (x) { x.setAttribute('aria-selected', x === b); });
+      rows = []; $('#bk-preview').innerHTML = ''; $('#bk-go').disabled = true; $('#bk-status').textContent = ''; $('#bk-reason-wrap').hidden = true;
+      help();
+    });
+    m.querySelector('#bk-text').addEventListener('input', function () { $('#bk-go').disabled = true; $('#bk-status').textContent = 'Press “Check list” after pasting.'; });
+    function preview() {
+      rows = parseBulk($('#bk-text').value, mode, { dept: $('#bk-dept').value, workstream: $('#bk-ws').value.trim() });
+      var good = rows.filter(function (r) { return !r.errors.length; });
+      var needReason = mode === 'update' && good.some(function (r) { return r.task && r.task.due && r.due && r.due !== r.task.due; });
+      $('#bk-reason-wrap').hidden = !needReason;
+      if (!rows.length) { $('#bk-preview').innerHTML = '<div class="empty">Nothing to check yet. Paste your list above.</div>'; $('#bk-go').disabled = true; return; }
+      var head = mode === 'create' ? ['#', 'Task', 'Department', 'Workstream', 'Owner', 'Due', 'Priority', 'Files', 'Check'] : ['#', 'Task', 'Owner', 'Due', 'Priority', 'Files', 'Check'];
+      $('#bk-preview').innerHTML = '<div class="bulk-table"><table><thead><tr>' + head.map(function (h) { return '<th>' + h + '</th>'; }).join('') + '</tr></thead><tbody>' +
+        rows.map(function (r) {
+          var dueCell = r.dueRaw ? r.dueRaw : r.due === '-' ? 'remove' : r.due ? Q.fmt(r.due) : (mode === 'create' ? '—' : 'keep');
+          var cells = mode === 'create' ? [r.line, r.title, r.dept, r.workstream, r.ownerLabel || (r.owner || '—'), dueCell, r.pri || 'P2', r.qty || '']
+            : [r.line, r.title, r.ownerLabel || (r.owner || 'keep'), dueCell, r.pri || 'keep', r.qty || 'keep'];
+          return '<tr class="' + (r.errors.length ? 'bad' : '') + '">' + cells.map(function (c) { return '<td>' + esc(c) + '</td>'; }).join('') +
+            '<td>' + (r.errors.length ? '<span class="err">' + esc(r.errors.join('; ')) + '</span>' : '<span class="good">OK</span>') + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+      var bad = rows.length - good.length;
+      $('#bk-status').textContent = good.length + ' ready' + (bad ? ' · ' + bad + ' with problems (they will be skipped)' : '');
+      $('#bk-go').disabled = !good.length;
+      $('#bk-go').textContent = (mode === 'create' ? 'Create ' : 'Update ') + good.length + ' task' + (good.length === 1 ? '' : 's');
+    }
+    m.querySelector('#bk-check').addEventListener('click', preview);
+    m.querySelector('#bk-go').addEventListener('click', function (e) {
+      var btn = e.currentTarget;
+      var good = rows.filter(function (r) { return !r.errors.length; });
+      if (!good.length) return;
+      var reason = $('#bk-reason').value.trim();
+      if (!$('#bk-reason-wrap').hidden && !reason) { Q.toast('Please give a reason for changing the due dates.', true); $('#bk-reason').focus(); return; }
+      var payload = good.map(function (r) {
+        return mode === 'create' ? { title: r.title, dept: r.dept, workstream: r.workstream, owner: r.owner, due: r.due, pri: r.pri, qty: r.qty }
+          : { title: r.title, owner: r.owner, due: r.due, pri: r.pri, qty: r.qty };
+      });
+      btn.disabled = true; btn.classList.add('busy'); $('#bk-check').disabled = true;
+      sendBulk(mode, payload, reason, function (done, total) { $('#bk-status').textContent = (mode === 'create' ? 'Creating ' : 'Updating ') + done + ' of ' + total + '…'; })
+        .then(function (out) {
+          if (out.groups) { S.data.groups = out.groups; }
+          out.tasks.forEach(function (t) { var i = S.data.tasks.findIndex(function (x) { return x.id === t.id; }); if (i >= 0) S.data.tasks[i] = t; else S.data.tasks.push(t); });
+          Q.index(); Q.render();
+          var okN = out.results.filter(function (x) { return x.ok; }).length, failed = out.results.filter(function (x) { return !x.ok; });
+          $('#bk-preview').innerHTML = '<div class="loadnote ' + (failed.length ? 'heavy' : 'ok') + '">' + (mode === 'create' ? 'Created ' : 'Updated ') + okN + ' task' + (okN === 1 ? '' : 's') + '.' +
+            (failed.length ? ' ' + failed.length + ' could not be saved:</div><ul class="small">' + failed.map(function (f) { return '<li>' + esc(payload[f.row].title) + ' – ' + esc(f.error) + '</li>'; }).join('') + '</ul>' : '</div>');
+          $('#bk-status').textContent = '';
+          $('#bk-text').value = ''; rows = [];
+          btn.textContent = 'Done'; btn.classList.remove('busy'); btn.disabled = true;
+          $('#bk-check').disabled = false;
+          Q.toast((mode === 'create' ? 'Created ' : 'Updated ') + okN + ' tasks');
+        }).catch(function (err) {
+          btn.disabled = false; btn.classList.remove('busy'); $('#bk-check').disabled = false;
+          if (err.code !== 'AUTH') { Q.toast(err.message, true); $('#bk-status').textContent = 'Stopped: ' + err.message + ' Tasks already saved stay saved. Check All tasks before sending again.'; }
+          Q.load(true);
+        });
+    });
+  }
+
+  function selectedTasks() {
+    return Object.keys(S.selected).filter(function (id) { return S.selected[id]; }).map(function (id) { return Q.ix.tasks[id]; }).filter(function (t) { return t && Q.canEdit(t); });
+  }
+  function openBulkEdit() {
+    var list = selectedTasks();
+    if (!list.length) { Q.toast('Tick the tasks you want to change first.', true); return; }
+    var withDue = list.filter(function (t) { return t.due; }).length;
+    var m = Q.openModal(Q.modalHead('Change ' + list.length + ' selected task' + (list.length === 1 ? '' : 's'), 'Leave a field empty to keep it as it is') +
+      '<div class="md-b"><div class="two"><div class="field"><label for="be-owner">Owner</label><select id="be-owner"><option value="">Keep as it is</option>' + Q.ownerOptions('', false) + '</select></div>' +
+      '<div class="field"><label for="be-due">Due date</label><input id="be-due" type="date"></div></div>' +
+      '<div class="two"><div class="field"><label for="be-pri">Priority</label><select id="be-pri">' + Q.options(Object.keys(Q.PRIORITY).map(function (p) { return [p, p + ' – ' + Q.PRIORITY[p]]; }), '', 'Keep as it is') + '</select></div>' +
+      '<div class="field"><label for="be-qty">Files per task</label><input id="be-qty" type="number" min="1" step="1" placeholder="Keep as it is"></div></div>' +
+      '<div class="field" id="be-reason-wrap" hidden><label for="be-reason">Reason (' + withDue + ' of these already have a due date)</label><input id="be-reason" type="text" maxlength="500"></div>' +
+      '<div class="small muted" style="max-height:120px;overflow:auto">' + list.map(function (t) { return esc(t.title); }).join('<br>') + '</div></div>' +
+      '<div class="md-f"><span class="muted small" id="be-status" style="margin-right:auto"></span><button class="btn" data-act="closeModal">Cancel</button><button class="btn primary" id="be-save">Apply to ' + list.length + '</button></div>');
+    m.querySelector('#be-due').addEventListener('change', function (e) { $('#be-reason-wrap').hidden = !(e.target.value && withDue); });
+    m.querySelector('#be-save').addEventListener('click', function (e) {
+      var owner = val('be-owner'), due = val('be-due'), pri = val('be-pri'), qty = val('be-qty'), reason = val('be-reason');
+      if (!owner && !due && !pri && !qty) { Q.toast('Choose at least one thing to change.', true); return; }
+      if (due && withDue && !reason) { Q.toast('Please give a reason for changing the due dates.', true); $('#be-reason').focus(); return; }
+      var btn = e.currentTarget; btn.disabled = true; btn.classList.add('busy');
+      sendBulk('update', list.map(function (t) { return { id: t.id, owner: owner, due: due, pri: pri, qty: qty }; }), reason,
+        function (d, n) { $('#be-status').textContent = 'Saving ' + d + ' of ' + n + '…'; })
+        .then(function (out) {
+          out.tasks.forEach(function (t) { var i = S.data.tasks.findIndex(function (x) { return x.id === t.id; }); if (i >= 0) S.data.tasks[i] = t; });
+          var failed = out.results.filter(function (x) { return !x.ok; });
+          S.selected = {}; Q.index(); Q.closeModal(); Q.render();
+          Q.toast('Updated ' + (out.results.length - failed.length) + ' task(s)' + (failed.length ? ' · ' + failed.length + ' skipped: ' + failed[0].error : ''), !!failed.length);
+        }).catch(function (err) { btn.disabled = false; btn.classList.remove('busy'); if (err.code !== 'AUTH') Q.toast(err.message, true); Q.load(true); });
+    });
   }
 
   /* ================= EXPORTS ================= */
@@ -668,6 +902,9 @@
       Q.render();
     },
     exportTasks: exportTasks,
+    bulkAdd: function () { openBulkAdd('create'); },
+    bulkEdit: function () { openBulkEdit(); },
+    clearSelection: function () { S.selected = {}; Q.render(); },
     exportReport: exportReport,
     print: function () { window.print(); },
     noop: function () {},
@@ -766,6 +1003,7 @@
   /* ================= EVENTS ================= */
   document.addEventListener('click', function (e) {
     var el;
+    if (e.target.matches('[data-select],[data-select-group]')) { e.stopPropagation(); return; }
     if ((el = e.target.closest('[data-demo-login]'))) { Q.doLogin('demo:' + el.dataset.demoLogin); return; }
     if ((el = e.target.closest('[data-notif]'))) { openNotif(el.dataset.notif); return; }
     if ((el = e.target.closest('[data-act]'))) {
@@ -808,6 +1046,12 @@
 
   document.addEventListener('change', function (e) {
     var el = e.target;
+    if (el.dataset.select) { S.selected[el.dataset.select] = el.checked; Q.render(); return; }
+    if (el.dataset.selectGroup) {
+      var on = el.checked;
+      Q.filteredTasks().forEach(function (t) { if (t.group === el.dataset.selectGroup && Q.canEdit(t)) S.selected[t.id] = on; });
+      Q.render(); return;
+    }
     if (el.dataset.filterKey) { S.filters[el.dataset.filterKey] = el.value; Q.render(); return; }
     if (el.dataset.report) {
       S.reports[el.dataset.report] = el.value;

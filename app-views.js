@@ -105,7 +105,7 @@
 
     return '<div class="head"><div><h1>Dashboard</h1><p class="sub">' + esc(Q.fmtLong(T)) + ' · all departments</p></div>' +
       '<div class="actions"><button class="btn" data-go="reports">Reports</button><button class="btn" data-go="mine">My tasks</button></div></div>' +
-      '<div class="band mb">' + band + '</div>' +
+      '<div class="band mb">' + band + '</div>' + Q.progressPanel() +
       '<div class="grid g-2-3 mb">' +
       '<div class="panel"><div class="panel-h"><h2>Overall progress</h2><span class="muted small">' + all.length + ' tasks</span></div>' +
       '<div class="overall"><div class="ring-wrap">' + Q.ring(0, 132, 14, segs) + '<div class="c"><div><b class="num">' + avg + '%</b><span>average done</span></div></div></div>' +
@@ -121,6 +121,91 @@
       '<div style="max-height:420px;overflow-y:auto">' + (ws || emptyBox('No workstreams with tasks here yet')) + '</div></div>' +
       '<div class="grid"><div class="panel"><div class="panel-h"><h2>Completed per week</h2></div><div class="cols">' + cols + '</div></div>' +
       '<div class="panel"><div class="panel-h"><h2>Recent activity</h2></div>' + (acts || emptyBox('Updates will appear here')) + '</div></div></div>';
+  };
+
+  /* ---------- file-count progress (e.g. curriculum files) ---------- */
+  Q.filesDone = function (t) { return t.qty ? Math.round(t.qty * Q.pct(t) / 100) : 0; };
+  function pctOn(t, day) {
+    var hist = (S.data.qtyProgress || {})[t.id] || [], v = null;
+    for (var i = 0; i < hist.length; i++) { if (hist[i][0] <= day) v = hist[i][1]; else break; }
+    if (v === null) return 0;
+    return v;
+  }
+  function filesOn(list, day) {
+    return list.reduce(function (s, t) { return s + t.qty * pctOn(t, day) / 100; }, 0);
+  }
+  Q.progressData = function () {
+    var list = Q.tasks().filter(function (t) { return t.qty; });
+    if (!list.length) return null;
+    var T = Q.today();
+    var total = list.reduce(function (s, t) { return s + t.qty; }, 0);
+    var done = list.reduce(function (s, t) { return s + Q.filesDone(t); }, 0);
+    var wd = (Q.asDate(T).getDay() + 6) % 7;                       // Monday = 0
+    var weekStartPrev = Q.addDays(T, -wd - 1);                     // last Sunday
+    var today = Math.max(0, Math.round(done - filesOn(list, Q.addDays(T, -1))));
+    var week = Math.max(0, Math.round(done - filesOn(list, weekStartPrev)));
+    var target = S.data.settings.progressTarget;
+    var needed = null, daysLeft = null;
+    if (target && /^\d{4}-\d{2}-\d{2}$/.test(target)) {
+      daysLeft = Q.dayNum(target) - Q.dayNum(T);
+      var weeksLeft = Math.max(1, (daysLeft + 1) / 7);
+      needed = Math.ceil((total - done) / weeksLeft);
+    }
+    var weeks = [];
+    for (var i = 7; i >= 0; i--) {
+      var end = Q.addDays(weekStartPrev, -7 * (i - 1)), start = Q.addDays(end, -7);
+      var e = i === 0 ? T : end;
+      weeks.push({ label: i === 0 ? 'This wk' : Q.fmt(Q.addDays(start, 1)), v: Math.max(0, Math.round(filesOn(list, e) - filesOn(list, start))), now: i === 0 });
+    }
+    weeks[weeks.length - 1].v = week;
+    var byGroup = {}, order = [];
+    list.forEach(function (t) {
+      if (!byGroup[t.group]) { byGroup[t.group] = { id: t.group, g: Q.groupOf(t), total: 0, done: 0 }; order.push(t.group); }
+      byGroup[t.group].total += t.qty; byGroup[t.group].done += Q.filesDone(t);
+    });
+    order.sort(function (a, b) { return Q.wbsCmp(byGroup[a].g.wbs, byGroup[b].g.wbs); });
+    var kinds = [['Textbook', /textbook/i], ['Script', /script/i]].map(function (k) {
+      var ts = list.filter(function (t) { return k[1].test(t.title); });
+      return { name: k[0], total: ts.reduce(function (s, t) { return s + t.qty; }, 0), done: ts.reduce(function (s, t) { return s + Q.filesDone(t); }, 0) };
+    }).filter(function (k) { return k.total; });
+    return { total: total, done: done, today: today, week: week, needed: needed, daysLeft: daysLeft, target: target, weeks: weeks,
+      groups: order.map(function (k) { return byGroup[k]; }), kinds: kinds };
+  };
+  Q.progressPanel = function () {
+    var P = Q.progressData();
+    if (!P) return '';
+    var pc = Math.round(P.done / P.total * 100);
+    // pace so far this week: Monday counts as 1 of 6 working days, Saturday/Sunday as the full week
+    var dayOfWeek = Math.min(6, ((Q.asDate(Q.today()).getDay() + 6) % 7) + 1);
+    var paceSoFar = P.needed !== null ? Math.round(P.needed * dayOfWeek / 6) : null;
+    var behind = paceSoFar !== null ? P.week - paceSoFar : null;
+    var maxW = Math.max.apply(null, [1, P.needed || 0].concat(P.weeks.map(function (w) { return w.v; })));
+    var cols = P.weeks.map(function (w) {
+      return '<div><em class="num">' + (w.v || '') + '</em><span class="b' + (w.now ? ' now' : '') + '" style="height:' + (w.v / maxW * 100) + '%"></span><small>' + w.label + '</small></div>';
+    }).join('');
+    var bar = function (d, t) { var p = t ? Math.round(d / t * 100) : 0; return '<div class="bar"><span style="width:' + p + '%;background:' + (p === 100 ? 'var(--teal)' : 'var(--purple)') + '"></span></div>'; };
+    return '<div class="panel mb"><div class="panel-h"><div><h2>' + esc(S.data.settings.progressTitle || 'Files') + '</h2><div class="muted small">' +
+      (P.target ? 'Target: all ' + P.total.toLocaleString('en-IN') + ' by ' + esc(Q.fmt(P.target)) + (P.daysLeft >= 0 ? ' · ' + P.daysLeft + ' days left' : ' · deadline passed') : 'From tasks that have a file count') + '</div></div>' +
+      '</div>' +
+      '<div class="grid g-3-2"><div>' +
+      '<div class="today-stats on-light" style="margin-bottom:14px">' +
+      '<div><b class="num">' + P.done.toLocaleString('en-IN') + '</b><span class="muted">of ' + P.total.toLocaleString('en-IN') + ' done (' + pc + '%)</span></div>' +
+      '<div><b class="num">' + P.today + '</b><span class="muted">today</span></div>' +
+      '<div><b class="num">' + P.week + '</b><span class="muted">this week</span></div>' +
+      (P.needed !== null ? '<div><b class="num">' + P.needed + '</b><span class="muted">needed per week</span></div>' : '') + '</div>' +
+      (behind !== null ? '<div class="loadnote ' + (behind >= 0 ? 'ok' : 'heavy') + '" style="margin-bottom:12px">' +
+        (behind >= 0 ? 'On pace: ' + P.week + ' done this week, about ' + paceSoFar + ' needed by today' :
+          (-behind) + ' files behind pace: ' + P.week + ' done this week, about ' + paceSoFar + ' needed by today (' + P.needed + ' for the full week)') + '</div>' : '') +
+      '<div class="stack" style="height:14px">' + '<span style="width:' + pc + '%;background:var(--teal)"></span></div>' +
+      P.groups.map(function (x) {
+        return '<div class="drow" data-ws="' + x.id + '" style="cursor:pointer"><div class="nm">' + esc(x.g.title) +
+          '<small>' + x.done + ' / ' + x.total + ' files</small></div>' + bar(x.done, x.total) + '<div class="num" style="text-align:right">' + Math.round(x.done / x.total * 100) + '%</div></div>';
+      }).join('') + '</div>' +
+      '<div>' + (P.kinds.length ? P.kinds.map(function (k) {
+        return '<div class="drow"><div class="nm">' + k.name + ' files<small>' + k.done + ' / ' + k.total + '</small></div>' + bar(k.done, k.total) + '<div class="num" style="text-align:right">' + Math.round(k.done / k.total * 100) + '%</div></div>';
+      }).join('') : '') +
+      '<div class="label" style="margin-top:14px">Files done per week</div><div class="cols">' + cols + '</div>' +
+      (P.needed !== null ? '<div class="muted small">Needed: about ' + P.needed + ' files a week from now to finish on time.</div>' : '') + '</div></div></div>';
   };
 
   function activityText(a) {
@@ -147,7 +232,7 @@
       (t.status !== 'NOT_STARTED' && t.status !== 'COMPLETED' ? Q.statusPill(t.status) : '') +
       '<span>' + taskMeta(t) + '</span>' + (t.ownerType === 'TEAM' ? '<span class="tag-soft">' + esc(Q.pname(t.owner)) + '</span>' : '') +
       (t.recur ? '<span class="tag-soft">' + esc(t.recur) + '</span>' : '') +
-      (cl.length ? '<span>☑ ' + cld + '/' + cl.length + '</span>' : '') +
+      (cl.length ? '<span>☑ ' + cld + '/' + cl.length + '</span>' : '') + (t.qty ? '<span>' + Q.filesDone(t) + '/' + t.qty + ' files</span>' : '') +
       Q.duePill(t) + '</div>' + (t.status === 'BLOCKED' && t.blocker ? '<div class="mt warn">Blocked: ' + esc(t.blocker) + '</div>' : '') + '</div>' +
       '<div class="prog">' + Q.minibar(t) + '</div>' +
       '<div class="upd">' + (done ? '' : Q.updatedToday(t) ? '<span class="updated">✓ Updated today</span>' : can ? '<button class="btn small" data-act="update" data-id="' + t.id + '">Update</button>' : '') + '</div></div>';
@@ -234,27 +319,35 @@
       var groups = byDept[d.id];
       if (!groups) return;
       var n = Object.keys(groups).reduce(function (s, k) { return s + groups[k].length; }, 0);
-      rows += '<tr class="drow2"><td colspan="7">' + esc(d.name) + ' <span class="muted small">' + n + '</span></td></tr>';
+      rows += '<tr class="drow2"><td colspan="8">' + esc(d.name) + ' <span class="muted small">' + n + '</span></td></tr>';
       Object.keys(groups).sort(function (a, b) { return wbsCmp((Q.ix.groups[a] || {}).wbs, (Q.ix.groups[b] || {}).wbs); }).forEach(function (gid) {
         var g = Q.ix.groups[gid] || { title: '—', wbs: '' }, ts = groups[gid];
         var closed = S.collapsed[gid] && !filtered;
-        rows += '<tr class="grow' + (closed ? ' collapsed' : '') + '" data-act="collapse" data-id="' + gid + '"><td class="wbs">' + esc(g.wbs) + '</td>' +
+        var selectable = ts.filter(Q.canEdit), allOn = selectable.length && selectable.every(function (t) { return S.selected[t.id]; });
+        rows += '<tr class="grow' + (closed ? ' collapsed' : '') + '" data-act="collapse" data-id="' + gid + '">' +
+          '<td>' + (selectable.length ? '<input type="checkbox" data-select-group="' + gid + '"' + (allOn ? ' checked' : '') + ' aria-label="Select all in ' + esc(g.title) + '">' : '') + '</td><td class="wbs">' + esc(g.wbs) + '</td>' +
           '<td colspan="4"><span class="caret">▾</span>' + esc(g.title) + ' <span class="muted small" style="font-weight:400">' + ts.length + ' tasks</span></td>' +
           '<td colspan="2">' + Q.minibar({ status: 'X', pct: Q.avgPct(ts) }) + '</td></tr>';
         if (closed) return;
         ts.sort(function (a, b) { return wbsCmp(a.wbs, b.wbs); }).forEach(function (t) {
-          rows += '<tr class="trow" data-open="' + t.id + '"><td class="wbs">' + esc(t.wbs) + '</td>' +
+          rows += '<tr class="trow' + (S.selected[t.id] ? ' selected' : '') + '" data-open="' + t.id + '"><td>' +
+            (Q.canEdit(t) ? '<input type="checkbox" data-select="' + t.id + '"' + (S.selected[t.id] ? ' checked' : '') + ' aria-label="Select ' + esc(t.title) + '">' : '') +
+            '</td><td class="wbs">' + esc(t.wbs) + '</td>' +
             '<td style="min-width:260px"><span style="font-weight:500">' + esc(t.title) + '</span>' + (t.recur ? '<span class="tag-soft">' + esc(t.recur) + '</span>' : '') +
-            (t.grade ? '<span class="tag-soft">Gr ' + esc(t.grade) + '</span>' : '') + '</td>' +
+            (t.grade ? '<span class="tag-soft">Gr ' + esc(t.grade) + '</span>' : '') + (t.qty ? '<span class="tag-soft">' + Q.filesDone(t) + '/' + t.qty + ' files</span>' : '') + '</td>' +
             '<td><span class="owner-cell">' + (t.owner ? Q.av(t.owner, 's') : '') + esc(Q.pname(t.owner)) + '</span></td>' +
             '<td>' + Q.priPill(t.pri) + '</td><td>' + Q.statusPill(t.status) + '</td><td style="min-width:130px">' + Q.minibar(t) + '</td><td>' + Q.duePill(t) + '</td></tr>';
         });
       });
     });
+    var nSel = Object.keys(S.selected).filter(function (id) { return S.selected[id] && Q.ix.tasks[id]; }).length;
     return '<div class="head"><div><h1>All tasks</h1><p class="sub">' + list.length + ' of ' + Q.tasks().length + ' tasks · everyone can see all work</p></div>' +
-      '<div class="actions"><button class="btn" data-act="exportTasks">Export CSV</button><button class="btn" data-act="collapseAll">Collapse all</button><button class="btn primary" data-act="newTask">' + icon('plus', ' width="16" height="16"') + 'New task</button></div></div>' +
+      '<div class="actions"><button class="btn" data-act="exportTasks">Export CSV</button><button class="btn" data-act="collapseAll">Collapse all</button>' +
+      '<button class="btn" data-act="bulkAdd">Add many</button><button class="btn primary" data-act="newTask">' + icon('plus', ' width="16" height="16"') + 'New task</button></div></div>' +
       filterBar() +
-      (list.length ? '<div class="tbl-wrap"><table><thead><tr><th>WBS</th><th>Task</th><th>Owner</th><th>Priority</th><th>Status</th><th>Progress</th><th>Due</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+      (nSel ? '<div class="selbar" role="region" aria-label="Selected tasks"><b>' + nSel + ' selected</b><button class="btn small primary" data-act="bulkEdit">Change owner, date or priority</button>' +
+        '<button class="btn small ghost" data-act="clearSelection">Clear selection</button></div>' : '') +
+      (list.length ? '<div class="tbl-wrap"><table><thead><tr><th style="width:34px"></th><th>WBS</th><th>Task</th><th>Owner</th><th>Priority</th><th>Status</th><th>Progress</th><th>Due</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
         : emptyBox('No tasks match these filters.'));
   };
 
