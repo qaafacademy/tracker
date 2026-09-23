@@ -346,6 +346,7 @@
       '<button class="btn" data-act="bulkAdd">Add many</button><button class="btn primary" data-act="newTask">' + icon('plus', ' width="16" height="16"') + 'New task</button></div></div>' +
       filterBar() +
       (nSel ? '<div class="selbar" role="region" aria-label="Selected tasks"><b>' + nSel + ' selected</b><button class="btn small primary" data-act="bulkEdit">Change owner, date or priority</button>' +
+        (Q.isAdmin() ? '<button class="btn small danger" data-act="bulkArchive">Archive selected</button>' : '') +
         '<button class="btn small ghost" data-act="clearSelection">Clear selection</button></div>' : '') +
       (list.length ? '<div class="tbl-wrap"><table><thead><tr><th style="width:34px"></th><th>WBS</th><th>Task</th><th>Owner</th><th>Priority</th><th>Status</th><th>Progress</th><th>Due</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
         : emptyBox('No tasks match these filters.'));

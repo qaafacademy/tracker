@@ -681,12 +681,13 @@
         if (match.length === 1 && !Q.canEdit(match[0])) errs.push('You cannot change this task');
         r.task = match.length === 1 ? match[0] : null;
       } else {
-        r = { title: c[0] || '', dept: c[1] || defaults.dept || '', workstream: c[2] || defaults.workstream || '', owner: c[3] || '', due: c[4] || '', pri: c[5] || '', qty: c[6] || '' };
+        r = { title: c[0] || '', dept: c[1] || defaults.dept || '', workstream: c[2] || defaults.workstream || '', owner: c[3] || '', due: c[4] || '', pri: c[5] || '', qty: c[6] || '', steps: (c[7] || '').split(';').map(function (x) { return x.trim(); }).filter(Boolean) };
         if (!r.title) errs.push('Task name missing');
         var d = checkDept(r.dept);
         if (!d) errs.push(r.dept ? 'Department "' + r.dept + '" not found' : 'Department missing');
         else r.dept = d.name;
         if (!r.workstream) r.workstream = 'General';
+        if (r.steps.length > 50) errs.push('More than 50 checklist steps');
       }
       var o = checkOwner(r.owner);
       if (o === null) errs.push('Owner "' + r.owner + '" not found'); else r.ownerLabel = o.label;
@@ -707,12 +708,12 @@
       else cur = trial;
     });
     if (cur.length) parts.push(cur);
-    var out = { results: [], tasks: [], groups: null }, sent = 0;
+    var out = { results: [], tasks: [], checklist: [], groups: null }, sent = 0;
     return parts.reduce(function (p, part) {
       return p.then(function () {
         return Q.api('task.bulk', { mode: mode, rows: part, dueReason: reason }).then(function (r) {
           r.results.forEach(function (x) { out.results.push({ row: sent + x.row, ok: x.ok, error: x.error, changed: x.changed }); });
-          out.tasks = out.tasks.concat(r.tasks); if (r.groups) out.groups = r.groups;
+          out.tasks = out.tasks.concat(r.tasks); if (r.checklist) out.checklist = out.checklist.concat(r.checklist); if (r.groups) out.groups = r.groups;
           sent += part.length; onProgress(sent, rows.length);
         });
       });
@@ -740,8 +741,9 @@
     function help() {
       $('#bk-help').innerHTML = mode === 'create'
         ? '<div class="bulk-help">One task per line. Columns in this order (only the task name is required):<br>' +
-          '<code>Task</code> | <code>Department</code> | <code>Workstream</code> | <code>Owner</code> | <code>Due date</code> | <code>Priority</code> | <code>Files</code><br>' +
+          '<code>Task</code> | <code>Department</code> | <code>Workstream</code> | <code>Owner</code> | <code>Due date</code> | <code>Priority</code> | <code>Files</code> | <code>Steps</code><br>' +
           'Example: <code>Design landing page | Marketing | Admission – Website | Fahad | 30/09/2026 | High</code><br>' +
+          'Steps make a checklist – separate them with a semicolon: <code>Draft; Review; Publish</code>. Progress then follows the ticks.<br>' +
           'Owner can be a first name or a team (e.g. Product Team). Dates like 30/09/2026 or 30 Sep 2026. Priority P0–P4, High, Medium, Low. New workstreams are created automatically.</div>'
         : '<div class="bulk-help">One task per line, matched by its exact name. Columns: <code>Task name</code> | <code>Owner</code> | <code>Due date</code> | <code>Priority</code> | <code>Files</code><br>' +
           'Leave a column empty to keep it as it is. Use <code>-</code> as the date to remove a due date.<br>' +
@@ -765,11 +767,11 @@
       var needReason = mode === 'update' && good.some(function (r) { return r.task && r.task.due && r.due && r.due !== r.task.due; });
       $('#bk-reason-wrap').hidden = !needReason;
       if (!rows.length) { $('#bk-preview').innerHTML = '<div class="empty">Nothing to check yet. Paste your list above.</div>'; $('#bk-go').disabled = true; return; }
-      var head = mode === 'create' ? ['#', 'Task', 'Department', 'Workstream', 'Owner', 'Due', 'Priority', 'Files', 'Check'] : ['#', 'Task', 'Owner', 'Due', 'Priority', 'Files', 'Check'];
+      var head = mode === 'create' ? ['#', 'Task', 'Department', 'Workstream', 'Owner', 'Due', 'Priority', 'Files', 'Steps', 'Check'] : ['#', 'Task', 'Owner', 'Due', 'Priority', 'Files', 'Check'];
       $('#bk-preview').innerHTML = '<div class="bulk-table"><table><thead><tr>' + head.map(function (h) { return '<th>' + h + '</th>'; }).join('') + '</tr></thead><tbody>' +
         rows.map(function (r) {
           var dueCell = r.dueRaw ? r.dueRaw : r.due === '-' ? 'remove' : r.due ? Q.fmt(r.due) : (mode === 'create' ? '—' : 'keep');
-          var cells = mode === 'create' ? [r.line, r.title, r.dept, r.workstream, r.ownerLabel || (r.owner || '—'), dueCell, r.pri || 'P2', r.qty || '']
+          var cells = mode === 'create' ? [r.line, r.title, r.dept, r.workstream, r.ownerLabel || (r.owner || '—'), dueCell, r.pri || 'P2', r.qty || '', r.steps.length ? r.steps.length + ' steps' : '']
             : [r.line, r.title, r.ownerLabel || (r.owner || 'keep'), dueCell, r.pri || 'keep', r.qty || 'keep'];
           return '<tr class="' + (r.errors.length ? 'bad' : '') + '">' + cells.map(function (c) { return '<td>' + esc(c) + '</td>'; }).join('') +
             '<td>' + (r.errors.length ? '<span class="err">' + esc(r.errors.join('; ')) + '</span>' : '<span class="good">OK</span>') + '</td></tr>';
@@ -787,13 +789,14 @@
       var reason = $('#bk-reason').value.trim();
       if (!$('#bk-reason-wrap').hidden && !reason) { Q.toast('Please give a reason for changing the due dates.', true); $('#bk-reason').focus(); return; }
       var payload = good.map(function (r) {
-        return mode === 'create' ? { title: r.title, dept: r.dept, workstream: r.workstream, owner: r.owner, due: r.due, pri: r.pri, qty: r.qty }
+        return mode === 'create' ? { title: r.title, dept: r.dept, workstream: r.workstream, owner: r.owner, due: r.due, pri: r.pri, qty: r.qty, steps: r.steps }
           : { title: r.title, owner: r.owner, due: r.due, pri: r.pri, qty: r.qty };
       });
       btn.disabled = true; btn.classList.add('busy'); $('#bk-check').disabled = true;
       sendBulk(mode, payload, reason, function (done, total) { $('#bk-status').textContent = (mode === 'create' ? 'Creating ' : 'Updating ') + done + ' of ' + total + '…'; })
         .then(function (out) {
           if (out.groups) { S.data.groups = out.groups; }
+          if (out.checklist && out.checklist.length) S.data.checklist = S.data.checklist.concat(out.checklist);
           out.tasks.forEach(function (t) { var i = S.data.tasks.findIndex(function (x) { return x.id === t.id; }); if (i >= 0) S.data.tasks[i] = t; else S.data.tasks.push(t); });
           Q.index(); Q.render();
           var okN = out.results.filter(function (x) { return x.ok; }).length, failed = out.results.filter(function (x) { return !x.ok; });
@@ -904,6 +907,21 @@
     exportTasks: exportTasks,
     bulkAdd: function () { openBulkAdd('create'); },
     bulkEdit: function () { openBulkEdit(); },
+    bulkArchive: function () {
+      var list = selectedTasks();
+      if (!list.length) { Q.toast('Tick the tasks you want to archive first.', true); return; }
+      confirmBox('Archive ' + list.length + ' task' + (list.length === 1 ? '' : 's') + '?',
+        'They will be hidden from everyone. You can restore them one by one from Admin → Archived tasks.', 'Archive ' + list.length, function (btn) {
+          btn.disabled = true; btn.classList.add('busy');
+          return sendBulk('archive', list.map(function (t) { return { id: t.id }; }), '', function () {})
+            .then(function (out) {
+              out.tasks.forEach(function (t) { var i = S.data.tasks.findIndex(function (x) { return x.id === t.id; }); if (i >= 0) S.data.tasks[i] = t; });
+              var failed = out.results.filter(function (x) { return !x.ok; });
+              S.selected = {}; Q.index(); Q.closeModal(); Q.render();
+              Q.toast('Archived ' + (out.results.length - failed.length) + ' task(s)' + (failed.length ? ' · ' + failed.length + ' skipped' : ''), !!failed.length);
+            }).catch(function (err) { btn.disabled = false; btn.classList.remove('busy'); if (err.code !== 'AUTH') Q.toast(err.message, true); Q.load(true); });
+        });
+    },
     clearSelection: function () { S.selected = {}; Q.render(); },
     exportReport: exportReport,
     print: function () { window.print(); },
