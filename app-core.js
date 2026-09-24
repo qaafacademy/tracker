@@ -110,11 +110,19 @@
   /* The app talks to Apps Script with POST. Apps Script answers through a redirect, and
    * some browsers/networks turn the redirected POST into a GET, which used to fail. So the
    * same call can also be sent as GET parameters, and whichever way works is remembered. */
-  var GET_LIMIT = 7000;
+  var GET_LIMIT = 7000;      // hard limit for one address
+  Q.GET_SAFE = 2000;         // bulk requests are split to stay well under it
   function parseReply(r, how) {
     if (!r.ok) { var e = new ApiError('The server did not respond (' + r.status + ').', 'HTTP'); e.http = r.status; e.how = how; throw e; }
     return r.json().catch(function () {
       var e = new ApiError('The server sent an unexpected reply. Check the API address in config.js.', 'HTTP'); e.how = how; throw e;
+    }).then(function (res) {
+      // A long address can be cut short on the way; the server then answers with its plain
+      // status line instead of doing the work. Treat that as "never arrived" and try again.
+      if (res && res.ok && res.data === undefined) {
+        var e = new ApiError('The request did not reach the server. Please try again.', 'NOT_DELIVERED'); e.how = how; throw e;
+      }
+      return res;
     });
   }
   function sendPost(body) {
@@ -154,6 +162,7 @@
         return res;
       }).catch(function (e) {
         if (e.code === 'TOO_BIG' || e.code === 'SETUP') throw e;
+        if (e.code === 'NOT_DELIVERED' && way) { throw e; }   // route is known good; do not send twice
         return second(body).then(function (res) {
           Q.store.set('transport', way === 'get' ? 'post' : 'get');
           return res;

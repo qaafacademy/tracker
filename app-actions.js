@@ -704,7 +704,7 @@
     var parts = [], cur = [];
     rows.forEach(function (r) {
       var trial = cur.concat([r]);
-      if (cur.length && (trial.length > 50 || encodeURIComponent(JSON.stringify({ mode: mode, rows: trial, dueReason: reason })).length > 5200)) { parts.push(cur); cur = [r]; }
+      if (cur.length && (trial.length > 25 || encodeURIComponent(JSON.stringify({ mode: mode, rows: trial, dueReason: reason })).length > Q.GET_SAFE)) { parts.push(cur); cur = [r]; }
       else cur = trial;
     });
     if (cur.length) parts.push(cur);
@@ -712,6 +712,7 @@
     return parts.reduce(function (p, part) {
       return p.then(function () {
         return Q.api('task.bulk', { mode: mode, rows: part, dueReason: reason }).then(function (r) {
+          if (!r || !r.results) throw new Q.ApiError('The server sent an incomplete reply. Check All tasks, then send the rest again.', 'HTTP');
           r.results.forEach(function (x) { out.results.push({ row: sent + x.row, ok: x.ok, error: x.error, changed: x.changed }); });
           out.tasks = out.tasks.concat(r.tasks); if (r.checklist) out.checklist = out.checklist.concat(r.checklist); if (r.groups) out.groups = r.groups;
           sent += part.length; onProgress(sent, rows.length);
