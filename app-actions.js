@@ -848,6 +848,38 @@
     });
   }
 
+  /* ================= TODAY'S LIST FOR WHATSAPP ================= */
+  function openTodayList(onlyMe) {
+    var text = Q.todayMessage(onlyMe);
+    var m = Q.openModal(Q.modalHead(onlyMe ? 'My list for today' : 'Today’s list for the team',
+      'Check it, change anything you like, then copy it or open WhatsApp and pick the chat.') +
+      '<div class="md-b"><textarea id="wa-text" style="min-height:280px;font-size:13px" spellcheck="false">' + esc(text) + '</textarea>' +
+      '<div class="hint" id="wa-count"></div></div>' +
+      '<div class="md-f"><span class="muted small" id="wa-note" style="margin-right:auto"></span><button class="btn" data-act="closeModal">Close</button>' +
+      '<button class="btn" id="wa-copy">' + icon('copy', ' width="15" height="15"') + 'Copy</button>' +
+      '<button class="btn primary" id="wa-send">' + icon('whatsapp', ' width="15" height="15"') + 'Open WhatsApp</button></div>', true);
+    var ta = m.querySelector('#wa-text');
+    function count() {
+      var n = ta.value.length;
+      $('#wa-count').textContent = n + ' characters';
+      $('#wa-note').textContent = n > 1800 ? 'Long message – if WhatsApp cuts it, use Copy and paste instead.' : '';
+    }
+    ta.addEventListener('input', count); count();
+    m.querySelector('#wa-copy').addEventListener('click', function () {
+      ta.focus(); ta.select();
+      var done = false;
+      try { done = document.execCommand('copy'); } catch (e) { done = false; }
+      if (!done && navigator.clipboard) { navigator.clipboard.writeText(ta.value).then(function () { Q.toast('Copied'); }).catch(function () { Q.toast('Press Ctrl+C to copy.', true); }); return; }
+      Q.toast(done ? 'Copied – paste it in WhatsApp' : 'Press Ctrl+C to copy.', !done);
+    });
+    m.querySelector('#wa-send').addEventListener('click', function () {
+      var url = 'https://wa.me/?text=' + encodeURIComponent(ta.value);
+      Q._lastWa = url;
+      var w = window.open(url, '_blank');
+      if (!w) Q.toast('Your browser blocked the new tab. Use Copy instead.', true);
+    });
+  }
+
   /* ================= EXPORTS ================= */
   function exportTasks() {
     var rows = [['WBS', 'Task', 'Department', 'Workstream', 'Owner', 'Priority', 'Status', 'Progress %', 'Due date', 'Stage', 'Blocker', 'Created by', 'Completed on']];
@@ -965,6 +997,8 @@
         });
       });
     },
+    todayList: function () { openTodayList(false); },
+    todayListMine: function () { openTodayList(true); },
     newMeeting: function () { openNewMeeting(); },
     meetingEdit: function () { openMeetingEdit(); },
     meetingHeld: function (el) {

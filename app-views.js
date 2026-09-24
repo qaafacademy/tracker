@@ -104,7 +104,8 @@
     }).join('');
 
     return '<div class="head"><div><h1>Dashboard</h1><p class="sub">' + esc(Q.fmtLong(T)) + ' · all departments</p></div>' +
-      '<div class="actions"><button class="btn" data-go="reports">Reports</button><button class="btn" data-go="mine">My tasks</button></div></div>' +
+      '<div class="actions"><button class="btn" data-act="todayList">' + icon('whatsapp', ' width="16" height="16"') + 'Today’s list</button>' +
+      '<button class="btn" data-go="reports">Reports</button><button class="btn" data-go="mine">My tasks</button></div></div>' +
       '<div class="band mb">' + band + '</div>' + Q.progressPanel() +
       '<div class="grid g-2-3 mb">' +
       '<div class="panel"><div class="panel-h"><h2>Overall progress</h2><span class="muted small">' + all.length + ' tasks</span></div>' +
@@ -208,6 +209,61 @@
       (P.needed !== null ? '<div class="muted small">Needed: about ' + P.needed + ' files a week from now to finish on time.</div>' : '') + '</div></div></div>';
   };
 
+  /* ---------- today's list, ready for WhatsApp ---------- */
+  Q.todayMessage = function (onlyMe) {
+    var T = Q.today(), all = Q.tasks();
+    var mine = onlyMe ? [Q.me()] : Q.members().map(function (u) { return u.id; });
+    var lines = [];
+    var dateText = Q.asDate(T).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+    lines.push('*Qaaf Tracker — ' + dateText + '*');
+    function taskLine(t, mark) {
+      var extra = [];
+      if (mark === '✅') return mark + ' ' + t.title;
+      if (t.qty) extra.push(Q.filesDone(t) + '/' + t.qty + ' files');
+      else {
+        var cl = Q.checklistOf(t.id);
+        if (cl.length) extra.push(cl.filter(function (c) { return c.done; }).length + '/' + cl.length + ' steps');
+        else if (t.pct) extra.push(t.pct + '%');
+      }
+      if (mark === '🔴') {
+        var d = -Q.diff(t.due);
+        extra.unshift(d + ' day' + (d === 1 ? '' : 's') + ' late');
+      }
+      if (t.status === 'BLOCKED') extra.push('blocked: ' + (t.blocker || 'waiting'));
+      return mark + ' ' + t.title + (extra.length ? ' — ' + extra.join(' · ') : '');
+    }
+    var counted = 0;
+    mine.forEach(function (uid) {
+      var ts = all.filter(function (t) { return Q.ownerIds(t).indexOf(uid) >= 0; });
+      var over = ts.filter(Q.isOverdue);
+      var today = ts.filter(function (t) { return Q.isOpen(t) && t.due === T; });
+      var done = ts.filter(function (t) { return t.status === 'COMPLETED' && Q.isoDay(t.completedAt) === T; });
+      var blocked = ts.filter(function (t) { return t.status === 'BLOCKED' && over.indexOf(t) < 0 && today.indexOf(t) < 0; });
+      if (!over.length && !today.length && !done.length && !blocked.length) return;
+      counted++;
+      lines.push('');
+      lines.push('👤 *' + Q.pname(uid) + '*');
+      over.forEach(function (t) { lines.push(taskLine(t, '🔴')); });
+      today.forEach(function (t) { lines.push(taskLine(t, '📌')); });
+      blocked.forEach(function (t) { lines.push(taskLine(t, '⚠️')); });
+      done.forEach(function (t) { lines.push(taskLine(t, '✅')); });
+    });
+    if (!counted) { lines.push(''); lines.push(onlyMe ? 'Nothing due today. 🎉' : 'No tasks due today. 🎉'); }
+    var P = Q.progressData();
+    if (P && !onlyMe) {
+      lines.push('');
+      lines.push('📊 ' + (S.data.settings.progressTitle || 'Files') + ': ' + P.done.toLocaleString('en-IN') + '/' + P.total.toLocaleString('en-IN') +
+        ' (' + Math.round(P.done / P.total * 100) + '%) · today ' + P.today + ' · this week ' + P.week + (P.needed ? ' of ' + P.needed : ''));
+    }
+    if (!onlyMe) {
+      var meetings = S.data.meetings.filter(function (m) { return m.date === T && m.status !== 'CANCELLED'; });
+      meetings.forEach(function (m) { lines.push('🕒 ' + m.title + ' — ' + Q.time12(m.time)); });
+    }
+    lines.push('');
+    lines.push('🔗 ' + (S.data.settings.appUrl || (location.origin + location.pathname)));
+    return lines.join('\n');
+  };
+
   function activityText(a) {
     if (a.field === 'created') return 'created';
     if (a.field === 'status') return 'changed status to ' + a.to + ' ·';
@@ -259,7 +315,9 @@
       var sorted = list.slice().sort(function (a, b) { return Q.dueInfo(a).rank - Q.dueInfo(b).rank || a.pri.localeCompare(b.pri); });
       return '<section class="sec"><div class="sec-h"><h2>' + title + '</h2><span class="count">' + list.length + '</span>' + (extra || '') + '</div>' + sorted.map(taskRow).join('') + '</section>';
     }
-    return '<div class="hello"><div class="today-card"><div><h1>' + greet + ', ' + esc(me.name) + '</h1><p>' + esc(Q.fmtLong(T)) +
+    return '<div class="head no-print" style="margin-bottom:12px"><div></div><div class="actions"><button class="btn" data-act="todayListMine">' +
+      icon('whatsapp', ' width="16" height="16"') + 'My list for today</button></div></div>' +
+      '<div class="hello"><div class="today-card"><div><h1>' + greet + ', ' + esc(me.name) + '</h1><p>' + esc(Q.fmtLong(T)) +
       (open.length ? ' · Please update the tasks you worked on today.' : '') + '</p></div>' +
       '<div class="today-stats"><div><b class="num">' + open.length + '</b><span>Open tasks</span></div><div class="' + (over.length ? 'over' : '') + '"><b class="num">' + over.length + '</b><span>Overdue</span></div>' +
       '<div><b class="num">' + today.length + '</b><span>Due today</span></div><div><b class="num">' + updated + '/' + open.length + '</b><span>Updated today</span></div></div></div>' +

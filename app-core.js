@@ -36,7 +36,9 @@
     check: '<path d="M5 12l5 5 9-10"/>',
     clip: '<path d="M21.4 11.1 12.2 20.3a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/>',
     arrow: '<path d="m9 6 6 6-6 6"/>',
-    back: '<path d="m15 6-6 6 6 6"/>'
+    back: '<path d="m15 6-6 6 6 6"/>',
+    whatsapp: '<path d="M21 11.5a8.4 8.4 0 0 1-12.3 7.4L3.5 20.5l1.6-5.1A8.5 8.5 0 1 1 21 11.5z"/><path d="M8.6 9.3c.2-.5.4-.5.6-.5h.5c.2 0 .4 0 .6.5l.7 1.6c.1.2 0 .4-.1.5l-.4.5c-.1.2-.2.3 0 .6a6 6 0 0 0 2.6 2.2c.3.1.4 0 .6-.1l.5-.6c.2-.2.3-.1.5 0l1.5.8c.2.1.3.2.3.4a1.6 1.6 0 0 1-1.1 1.4c-.5.2-1.2.2-3.4-.8a8 8 0 0 1-3.3-3.4c-.7-1.3-.5-2.3-.1-3.1z"/>',
+    copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>'
   };
   Q.icon = function (k, extra) {
     return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"' + (extra || '') + '>' + Q.ICONS[k] + '</svg>';
